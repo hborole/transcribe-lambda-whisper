@@ -1,0 +1,5 @@
+models/
+docker_commands.md
+ffmpeg*
+entry_script.sh
+src/small.pt
