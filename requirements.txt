@@ -1,2 +1,6 @@
 boto3
 openai-whisper
+torch
+transformers
+sentencepiece
+protobuf

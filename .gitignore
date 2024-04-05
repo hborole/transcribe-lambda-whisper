@@ -2,4 +2,8 @@ models/
 docker_commands.md
 ffmpeg*
 entry_script.sh
-src/small.pt
+src/*.pt
+src/poc*.py
+videos/
+output/
+poc/
