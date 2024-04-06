@@ -8,7 +8,8 @@ import logging
 import whisper
 import os
 import json
-from transformers import MBartForConditionalGeneration, MBart50TokenizerFast
+from transformers import MBartForConditionalGeneration, MBart50TokenizerFast, pipeline
+from decimal import Decimal
 
 # Set up logging
 logger = logging.getLogger()
@@ -78,14 +79,67 @@ languages = {
 def handler(event, context):
     logger.info(f'Event: {event}')
     try:
-        # Get the key from the event
         event_body = json.loads(event['body'])
-        key = event_body['key']
+
+        is_sentiment = event_body.get('is_sentiment', 'false')
         is_translate = event_body.get('is_translate', 'false')
+        key = event_body.get('key', None)
+        text = event_body.get('text', None)
         translate_to = event_body.get('translate_to', 'English')
-        transcript = event_body.get('transcript', '')
+        transcript = event_body.get('transcript', None)
+
+        if is_sentiment == 'true':
+            if text is None or key is None:
+                return {
+                    "statusCode": 400,
+                    "body": json.dumps({
+                        "message": "Text / key is required",
+                    }),
+                }
+            
+            try:
+                classifier = pipeline("text-classification",model='bhadresh-savani/distilbert-base-uncased-emotion', top_k=None)
+                prediction = classifier(text, )
+                prediction = sorted(prediction[0], key=lambda x: x['score'], reverse=True)
+
+                # Convert float to decimal
+                for pred in prediction:
+                    pred['score'] = Decimal(str(pred['score']))
+                
+                print('Sentiment analysis results :==========> ', prediction)
+
+                # Update the dynamodb table with the transcript
+                table = dynamodb.Table('sentimentAnalysis')
+
+                # Put the item in the table
+                response = table.put_item(
+                    Item={
+                        'key': key,
+                        'text': text,
+                        'statusCode': 'COMPLETE',
+                        'sentiment': prediction
+                    }
+                )
+
+                print('DynamoDB response :==========> ', response)
+
+                return {
+                    "statusCode": 200,
+                    "body": json.dumps({
+                        "message": "Sentiment analysis successful",
+                    }),
+                }
+            
+            except Exception as e:
+                print('Error :==========> ', e)
+                return {
+                    "statusCode": 500,
+                    "body": json.dumps({
+                        "message": str(e),
+                    }),
+                }
         
-        if is_translate == 'true':
+        elif is_translate == 'true':
             # Check if the language code is valid
             logger.info(f'Translating to: {translate_to}')
             if translate_to not in languages:
@@ -97,7 +151,7 @@ def handler(event, context):
                     })
                 }
 
-            if transcript == '':
+            if not transcript:
                 return {
                     'statusCode': 400,
                     'body': json.dumps({
@@ -106,13 +160,11 @@ def handler(event, context):
                     })
                 }
 
-            logger.info(f'Translating text to {translate_to}')
-
             # Load the model and tokenizer
             model = MBartForConditionalGeneration.from_pretrained("SnypzZz/Llama2-13b-Language-translate")
             tokenizer = MBart50TokenizerFast.from_pretrained("SnypzZz/Llama2-13b-Language-translate", src_lang="en_XX")
 
-            english_text = json.loads(transcript)['english']
+            english_text = (json.loads(transcript)['transcript']['english']).strip()
             model_inputs = tokenizer(english_text, return_tensors="pt")
 
             # translate from English to language
@@ -162,6 +214,7 @@ def handler(event, context):
             if detected_language != 'en':
                 # Translate the audio to English
                 translate = model.transcribe(local_file, task="translate", fp16=False)
+
 
             result = { 'language': detected_language, 'transcript': original.text, 'english': translate['text'] if detected_language != 'en' else original.text }
 
